@@ -1,0 +1,29 @@
+# Isaac gripper sim2real — DRL-safe defaults (TCP path, not drl_start per command)
+isaac_gripper_bridge:
+  ros__parameters:
+    input_topic: /isaac/joint_states
+    master_joint_name: rh_r1
+    open_rad: 0.0
+    closed_rad: 1.101
+    stroke_max: 700
+    output_mode: rh_p12_direct
+    direct_cmd_topic: /gripper/cmd_direct
+    pulse_open: 100
+    pulse_closed: 420
+    goal_current: 300
+    enable_command: true
+    max_publish_hz: 10.0
+    min_delta_pulse: 2
+
+gripper_service_node:
+  ros__parameters:
+    robot_ns: dsr01
+    command_transport: tcp
+    tcp_external_server: false
+    robot_port: 9105
+    tcp_protocol: json
+    gripper_command_action_enabled: false
+    direct_cmd_topic_enabled: true
+    direct_cmd_topic: /gripper/cmd_direct
+    state_hz: 20.0
+    tcp_state_hz: 20.0
