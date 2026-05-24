@@ -6,8 +6,6 @@ ros2_ws/log/
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-.eggs/
 
 # IDE / OS
 .vscode/

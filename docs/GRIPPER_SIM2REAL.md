@@ -1,51 +1,82 @@
-# 그리퍼 Sim2Real + DRL 충돌 회피
+# 그리퍼 Sim2Real — T4 (팔 T3와 **동시** 실행)
 
-## 문제
+## 전제: 팔+그리퍼 둘 다 필요
 
-- 팔 sim2real: `sub_joint_state` → `move_joint` / `servoj_rt` (**DRFL**, `drl_start` 아님)
-- 그리퍼 `rh_p12_rna_controller` 기본: `command_transport:=drl` → **매 이동마다 `drl_start`**
-- → 팔·그리퍼 **동시 sim2real 불가** (한쪽만 동작)
+`/isaac/joint_states`에는 팔 6 + 그리퍼 4가 **한 메시지**로 옵니다.
 
-## 해결
+- **T3** `sub_joint_state` → `joint_1~6`만 실로봇
+- **T4** `gripper_bridge` → `rh_r1`만 실로봇
 
-### rh_p12 (권장)
+**둘 다 켜야** Isaac pose 전체가 real에 반영됩니다.
 
-1. `gripper_service_node`: **`command_transport:=tcp`**
-   - 시작 시 DRL TCP 서버 **1회** 주입 (백그라운드)
-   - 이후 Modbus는 **TCP 소켓** (9105) — `drl_start` 재호출 없음
+---
 
-2. `gripper_bridge`: **`output_mode:=rh_p12_direct`**
-   - `/gripper/cmd_direct`에 `custom PULSE CUR` 발행
-   - `direct_cmd_topic_enabled:=true`인 gripper_service_node가 큐 처리
+## 동시 sim2real 명령 (T3 + T4)
+
+### source (공통)
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/doosan-robot2/install/setup.bash
+source ~/sim2real_deploy/ros2_ws/install/setup.bash
+```
+
+### T3 — 팔
+
+```bash
+ros2 run isaac_sim_2_real sub_joint_state --ros-args \
+  -p motion_mode:=move_joint \
+  -p enable_motion:=true \
+  -p input_topic:=/isaac/joint_states \
+  -p max_publish_hz:=10.0 \
+  -p move_joint_sync_type:=1
+```
+
+### T4 — 그리퍼 (T3 **켜진 상태에서** 같은 Isaac Play)
 
 ```bash
 ros2 launch isaac_gripper_sim2real sim2real_gripper.launch.py \
-  robot_ip:=<IP> enable_command:=true
+  robot_ip:=<ROBOT_IP> \
+  enable_command:=true
 ```
 
-### e0509 (DRL 완전 분리)
+launch 내부:
+- `gripper_service_node`: `command_transport:=tcp`, `direct_cmd_topic_enabled:=true`
+- `gripper_bridge`: `output_mode:=rh_p12_direct`, `enable_command:=true`
+
+---
+
+## 왜 tcp인가 (동시 가능 이유)
+
+| | drl_start per move | T3와 동시 |
+|--|---------------------|-----------|
+| T3 move_joint/servoj_rt | 없음 (DRFL) | — |
+| T4 + `command_transport:=drl` | **매번** | ❌ |
+| T4 + `command_transport:=tcp` | **없음** (초기 TCP 서버 1회) | ✅ |
+
+---
+
+## 확인 (동시 OK 판정)
 
 ```bash
-ros2 run isaac_gripper_sim2real gripper_bridge --ros-args \
-  -p output_mode:=e0509_topic -p enable_command:=true
+ros2 topic hz /isaac/joint_states          # Isaac → ROS
+ros2 topic echo /gripper/cmd_direct        # T4 출력
+ros2 topic hz /dsr01/servoj_rt_stream      # T3 servoj_rt 시
+# move_joint면 sub_joint_state 로그에 move_joint ok
 ```
 
-`e0509_gripper_description` bringup 필요. Flange Modbus만 사용.
+세 경로 모두 살아 있으면 **팔+그리퍼 동시 sim2real** 동작 중.
+
+---
 
 ## 금지
 
-- sim2real 중 `command_transport:=drl` on gripper
-- `gripper_service_node` + `e0509` C++ gripper Modbus **동시** 기동
+- T4만 켜고 T3 안 켬 → 그리퍼만 움직임
+- `command_transport:=drl` → T3와 충돌
+- e0509 C++ gripper + rh_p12 gripper_service_node 동시 Modbus
+
+---
 
 ## 변환
 
-`rh_r1` [rad] 0~1.101 → pulse 100~420 (또는 stroke 0~700)
-
-## 확인
-
-```bash
-ros2 topic echo /gripper/cmd_direct
-ros2 topic hz /dsr01/servoj_rt_stream
-```
-
-둘 다 Hz 나오면 팔·그리퍼 **병행 OK**.
+`rh_r1` 0 rad → pulse 100 (열림), 1.101 rad → pulse 420 (닫힘)
